@@ -44,6 +44,7 @@ import re
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.request
 from pathlib import Path
@@ -143,13 +144,24 @@ def _with_retry(fn, what, retries=6, pause=2.0):
     raise last
 
 
+class PromptRejected(Exception):
+    """ComfyUI answered with an HTTP error (400/500): permanent, do not retry."""
+
+
 def http_json(url, data=None, method="GET", retries=6, pause=2.0):
     def _do():
         req = urllib.request.Request(url, method=method)
         req.add_header("Content-Type", "application/json")
         body = json.dumps(data).encode() if data is not None else None
-        with urllib.request.urlopen(req, body) as r:
-            return json.loads(r.read().decode())
+        try:
+            with urllib.request.urlopen(req, body) as r:
+                return json.loads(r.read().decode())
+        except urllib.error.HTTPError as e:
+            try:
+                detail = e.read().decode(errors="replace")
+            except Exception:
+                detail = str(e)
+            raise PromptRejected(f"HTTP {e.code}: {detail.strip()[:2000]}")
     if retries <= 1:
         return _do()
     return _with_retry(_do, url, retries, pause)
@@ -199,7 +211,20 @@ def comfyui_reachable(host):
         return False
 
 
-def start_comfyui(host, comfyui_dir):
+def write_model_paths_cfg(models_dir: Path):
+    """Write an extra_model_paths yaml mapping each subfolder of models_dir
+    to a ComfyUI model folder. Returns the temp file path."""
+    lines = []
+    for sub in sorted(p for p in models_dir.iterdir() if p.is_dir()):
+        key = "clip" if sub.name == "text_encoders" else sub.name
+        lines.append(f"{key}: {sub.resolve()}")
+    cfg = tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False, encoding="utf-8")
+    cfg.write("\n".join(lines) + "\n")
+    cfg.close()
+    return cfg.name
+
+
+def start_comfyui(host, comfyui_dir, models_dir=None):
     """Start ComfyUI in the background; returns the Popen (caller manages it)."""
     if not (comfyui_dir / "main.py").exists():
         sys.exit(
@@ -214,6 +239,8 @@ def start_comfyui(host, comfyui_dir):
     COMFYUI_LOG.write_text("", encoding="utf-8")
     log_fh = open(COMFYUI_LOG, "ab")
     cmd = [str(python), "main.py", "--listen", "127.0.0.1", "--port", str(port)]
+    if models_dir is not None:
+        cmd += ["--extra-model-paths-config", write_model_paths_cfg(models_dir)]
     proc = subprocess.Popen(cmd, cwd=comfyui_dir, stdout=log_fh, stderr=subprocess.STDOUT,
                             start_new_session=True)
     print(f"Starting ComfyUI (pid {proc.pid}) -> log: {COMFYUI_LOG}")
@@ -339,7 +366,15 @@ def generate(host, template, prompt_node, items, args):
             set_seed(wf, seed)
             out_base = base if args.batch == 1 else f"{base}_{k}"
             print(f"  gen {k}/{args.batch} seed={seed}")
-            r = http_json(f"{host}/prompt", {"prompt": wf}, method="POST")
+            try:
+                r = http_json(f"{host}/prompt", {"prompt": wf}, method="POST")
+            except PromptRejected as e:
+                sys.exit(
+                    f"ComfyUI rejected the prompt: {e}\n"
+                    "  Usual cause: the workflow's models (UNET/CLIP/VAE) are not in the\n"
+                    f"  model folders of the ComfyUI installation. Point --models-dir at a\n"
+                    f"  shared models folder, or check the log: {COMFYUI_LOG}"
+                )
             prompt_id = r.get("prompt_id")
             if not prompt_id:
                 sys.exit(f"Request rejected: {r}")
@@ -379,6 +414,10 @@ def main():
     ap.add_argument("--height", type=int, default=None, help="override height (default: from the workflow)")
     ap.add_argument("--comfyui-dir", type=Path, default=DEFAULT_COMFYUI,
                     help="ComfyUI installation (default: ~/ComfyUI-Installs/Comfy_Env/ComfyUI)")
+    ap.add_argument("--models-dir", type=Path, default=None,
+                    help="shared models folder with ComfyUI model subfolders "
+                         "(e.g. ~/ComfyUI-Shared/models); passed to ComfyUI via "
+                         "--extra-model-paths-config when the script starts it")
     ap.add_argument("--keep-comfyui", action="store_true",
                     help="do not shut down the ComfyUI instance started by the script")
     args = ap.parse_args()
@@ -399,7 +438,7 @@ def main():
     else:
         if urlparse(args.host).hostname not in ("127.0.0.1", "localhost"):
             sys.exit(f"ComfyUI not reachable on {args.host} (remote host: start it yourself and retry).")
-        proc = start_comfyui(args.host, args.comfyui_dir)
+        proc = start_comfyui(args.host, args.comfyui_dir, args.models_dir)
 
     try:
         # 2. items from the JSON file

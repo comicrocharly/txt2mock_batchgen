@@ -72,7 +72,23 @@ python3 generate_comfyui.py --ids 51,55,80
 python3 generate_comfyui.py --only 1-10
 
 python3 generate_comfyui.py --comfyui-dir ~/ComfyUI-Installs/Comfy_Env/ComfyUI
+
+# models live in a shared folder, not inside the ComfyUI install:
+python3 generate_comfyui.py --models-dir ~/ComfyUI-Shared/models
 ```
+
+`--models-dir` (optional): a folder with ComfyUI model subfolders
+(`diffusion_models`, `text_encoders`/`clip`, `vae`, ...). When the script
+starts ComfyUI it passes it via `--extra-model-paths-config`, so a fresh
+install with empty model folders works with shared models. Without it, the
+models must already be inside the install's own `models/` folders.
+
+### Troubleshooting
+
+- **"Value not in list: unet_name: ... not in []"** (ComfyUI rejects the
+  prompt, HTTP 400): the workflow's models are not in the model folders of
+  the ComfyUI installation. Either put/symlink them there, or use
+  `--models-dir` pointing at a shared models folder.
 
 ### Batch per entity
 
