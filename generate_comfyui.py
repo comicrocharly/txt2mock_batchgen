@@ -20,12 +20,17 @@ Items file format (default: items.json next to this script):
 The script starts ComfyUI automatically if it is not already running (local
 host) and shuts it down at the end to free memory (unless --keep-comfyui).
 
+Batch per entity: with --batch N, every object gets N images and EVERY
+single generation rolls its own seed (fully random, or S, S+1, S+2, ...
+when --seed S is given), so no two images in a batch look the same.
+
 Usage:
   python3 generate_comfyui.py                        # generate everything in items.json
   python3 generate_comfyui.py --items other.json     # alternative items file
   python3 generate_comfyui.py --ids 61-72           # only these primary keys
   python3 generate_comfyui.py --only 1,5,7          # positions in the file (1-based)
-  python3 generate_comfyui.py --seed 42             # fixed seed (reproducible)
+  python3 generate_comfyui.py --batch 3             # 3 images per entity (seed rolled per generation)
+  python3 generate_comfyui.py --seed 42             # seeds 42, 43, 44, ... (reproducible)
   python3 generate_comfyui.py --width 768 --height 768
   python3 generate_comfyui.py --host http://127.0.0.1:8188
   python3 generate_comfyui.py --keep-comfyui        # do not shut ComfyUI down at the end
@@ -34,6 +39,7 @@ Usage:
 import argparse
 import json
 import os
+import random
 import re
 import signal
 import subprocess
@@ -294,15 +300,33 @@ def wait_and_download(host, prompt_id, outdir, base_name):
     sys.exit("Timeout waiting for generation (20 min).")
 
 
+_seed_counter = 0
+
+
+def roll_seed(base_seed):
+    """Roll a new 32-bit seed for a single generation.
+
+    Without --seed: fully random on every call.
+    With --seed S: S, S+1, S+2, ... (still a different seed per generation,
+    reproducible)."""
+    global _seed_counter
+    if base_seed is None:
+        return random.getrandbits(32)
+    seed = (base_seed + _seed_counter) % (2**32)
+    _seed_counter += 1
+    return seed
+
+
 def generate(host, template, prompt_node, items, args):
-    """For each item: set prompt in the workflow -> POST /prompt -> download PNG."""
+    """Batch per entity: for each item, generate --batch images, each with a
+    freshly rolled seed -> POST /prompt -> download PNG."""
     args.outdir.mkdir(parents=True, exist_ok=True)
+    total = len(items) * args.batch
+    done = 0
     for pos, (pk, name, prompt) in enumerate(items, 1):
         print(f"\n[{pos}/{len(items)}] {name}" + (f" (id {pk})" if pk is not None else ""))
         wf = json.loads(json.dumps(template))  # deep copy
         wf[str(prompt_node)]["inputs"]["text"] = prompt
-        seed = args.seed if args.seed is not None else int(time.time() * 1000) % (2**32)
-        set_seed(wf, seed)
         if args.width or args.height:
             w = args.width or wf_size_default(wf)
             h = args.height or w
@@ -310,15 +334,19 @@ def generate(host, template, prompt_node, items, args):
 
         slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:60] or f"item-{pos}"
         base = f"{pk}-{slug}" if pk is not None else slug
-        r = http_json(f"{host}/prompt", {"prompt": wf}, method="POST")
-        prompt_id = r.get("prompt_id")
-        if not prompt_id:
-            sys.exit(f"Request rejected: {r}")
-        print(f"  prompt_id={prompt_id}")
-        saved = wait_and_download(host, prompt_id, args.outdir, base)
-        for s in saved:
-            print(f"  -> {s}")
-    print("\nDone. Images in:", args.outdir)
+        for k in range(1, args.batch + 1):
+            seed = roll_seed(args.seed)
+            set_seed(wf, seed)
+            out_base = base if args.batch == 1 else f"{base}_{k}"
+            print(f"  gen {k}/{args.batch} seed={seed}")
+            r = http_json(f"{host}/prompt", {"prompt": wf}, method="POST")
+            prompt_id = r.get("prompt_id")
+            if not prompt_id:
+                sys.exit(f"Request rejected: {r}")
+            saved = wait_and_download(host, prompt_id, args.outdir, out_base)
+            done += 1
+            print(f"  [{done}/{total}] -> {', '.join(saved)}")
+    print(f"\nDone. {total} images in:", args.outdir)
 
 
 def wf_size_default(wf):
@@ -342,7 +370,11 @@ def main():
                     help="primary keys to generate (e.g. 61-72, 51,55)")
     ap.add_argument("--only", type=str, default=None,
                     help="positions in the file, 1-based (e.g. 1,4,7 or 11-60)")
-    ap.add_argument("--seed", type=int, default=None, help="fixed seed (default: random per item)")
+    ap.add_argument("--seed", type=int, default=None,
+                    help="base seed (default: fully random; with --seed S the seeds are S, S+1, S+2, ...)")
+    ap.add_argument("--batch", type=int, default=1,
+                    help="images per entity (default 1); every generation in the batch "
+                         "gets a freshly rolled seed, files named <id>-<slug>_1..N.png")
     ap.add_argument("--width", type=int, default=None, help="override width (default: from the workflow)")
     ap.add_argument("--height", type=int, default=None, help="override height (default: from the workflow)")
     ap.add_argument("--comfyui-dir", type=Path, default=DEFAULT_COMFYUI,

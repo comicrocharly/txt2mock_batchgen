@@ -71,16 +71,27 @@ python3 generate_comfyui.py --ids 51,55,80
 # positions in the file (1-based)
 python3 generate_comfyui.py --only 1-10
 
-# other options
-python3 generate_comfyui.py --seed 42                 # fixed seed (reproducible)
-python3 generate_comfyui.py --width 768 --height 768  # override size
-python3 generate_comfyui.py --host http://127.0.0.1:8188
-python3 generate_comfyui.py --keep-comfyui
 python3 generate_comfyui.py --comfyui-dir ~/ComfyUI-Installs/Comfy_Env/ComfyUI
 ```
 
+### Batch per entity
+
+`--batch N` makes the script generate N images **per entity**, and **every
+single generation rolls its own seed** (fully random by default, or
+`S, S+1, S+2, ...` when `--seed S` is given), so all images of a batch
+differ from each other instead of being repeated with one shared seed:
+
+```bash
+# 3 images per entity, every generation with a freshly rolled seed
+python3 generate_comfyui.py --batch 3
+
+# reproducible batch: seeds 42, 43, 44, ... across generations
+python3 generate_comfyui.py --batch 3 --seed 42
+```
+
 Files land in `output/` named `<id>-<slug>.png` (or `<slug>.png` without id),
-e.g. `51-4-cup-aluminum-moka-pot.png`.
+e.g. `51-4-cup-aluminum-moka-pot.png`. With `--batch N > 1` each generation
+of an entity is numbered: `51-4-cup-aluminum-moka-pot_1.png`, `_2.png`, `_3.png`.
 
 ## Want a different model/workflow?
 
@@ -93,8 +104,9 @@ The script finds the prompt node (CLIPTextEncode) and the KSampler by itself.
 
 ## Notes
 
-- Seed: random per item by default; with `--seed N` all items use the same
-  seed (useful for comparisons, not for variety).
+- Seed: **rolled per generation**. Default: fully random every generation;
+  with `--seed S`: seeds are `S, S+1, S+2, ...` in generation order
+  (reproducible).
 - If ComfyUI was already open (e.g. in the browser), the script uses it and
   does not shut it down.
 - Generation timeout: 20 min per item; auto-start log in `comfyui-auto.log`.
