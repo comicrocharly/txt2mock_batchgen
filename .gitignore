@@ -9,9 +9,6 @@ comfyui-auto.log
 __pycache__/
 *.pyc
 
-# Personal items files (examples are kept)
-items.json
-
 # OS / IDE
 .DS_Store
 Thumbs.db
