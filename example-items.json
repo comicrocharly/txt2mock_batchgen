@@ -1,0 +1,21 @@
+{
+  "source": "example — select id, name, description from articles order by id limit 3",
+  "count": 3,
+  "items": [
+    {
+      "id": 51,
+      "name": "4-Cup Aluminum Moka Pot",
+      "prompt": "Professional product photography of a classic 4-cup aluminum moka coffee pot, anodized silver octagonal 60s design, on a dark matte stovetop with a faint wisp of steam, warm morning side light, shallow depth of field, neutral background, studio lighting, high detail, 8k, photorealistic"
+    },
+    {
+      "id": 52,
+      "name": "Coffee Filter 62 (200 pcs)",
+      "prompt": "Professional product photography of a kraft paper bag containing white round paper coffee filters, a neat fan of filters in the foreground, minimalist clean background, soft diffused studio lighting, premium packaging aesthetic, e-commerce hero shot, high detail, 8k, photorealistic"
+    },
+    {
+      "id": 53,
+      "name": "Portable Steam Garment Steamer",
+      "prompt": "Professional product photography of a sleek portable vertical steam garment steamer, matte white and chrome finish, strong vertical steam jet toward a hanging crisp white shirt, bright modern room with soft bokeh, studio lighting, clean background, high detail, 8k, photorealistic"
+    }
+  ]
+}
