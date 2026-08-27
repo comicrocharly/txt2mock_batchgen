@@ -21,15 +21,22 @@ The flow in 3 steps:
 | File | What |
 |------|------|
 | `generate_comfyui.py` | The script: items.json -> ComfyUI API -> PNG |
-| `zimage-turbo-api.json` | **Z-Image Turbo** workflow already exported in API format |
+| `workflow.json` | **Z-Image Turbo** workflow already exported in API format |
 | `llm_instructions.md` | Instructions for an LLM: DB rows -> `items.json` |
 | `example-items.json` | Ready-made example items file |
 | `output/` | Where the PNGs end up |
 
 ## Prerequisites
 
-1. **ComfyUI** installed (default: `~/ComfyUI-Installs/Comfy_Env/ComfyUI`,
-   override with `--comfyui-dir`), with the workflow's models in the right
+1. **ComfyUI** installed (default: instance `ComfyUI`, i.e.
+   `~/ComfyUI-Installs/ComfyUI/ComfyUI`; override with `-i <instance>` or
+   `--comfyui-dir`), with the workflow's models in the right
+   (the shared folder `~/ComfyUI-Shared/models` is auto-detected, see below).
+   The instance **startup options** configured in the ComfyUI Desktop app
+   (e.g. `--lowvram --cpu-vae`) are read from
+   `~/.local/share/comfyui-desktop-2/installations.json` and echoed/applied
+   when the script starts the instance (the script's own args win in case of
+   conflict, e.g. `--port`).
    folders:
    - UNET: `z_image_turbo_bf16.safetensors`
    - CLIP: `qwen_3_4b.safetensors`
@@ -41,7 +48,7 @@ itself** and shuts it down at the end (use `--keep-comfyui` to keep it open).
 
 ## Usage
 
-### Step 1 — create `items.json`
+### Step 1 — create the prompts file
 
 Give an LLM the contents of `llm_instructions.md` + the rows of your DB table
 (`id`, `name`, `description`) and ask for the `items.json` file. Every item
@@ -52,6 +59,10 @@ has:
 ```
 
 `id` is the primary key (used in the file name), `name` and `prompt` as above.
+
+Alternative input: a **markdown** prompts file with blocks like
+`## 1. Name (id 51)` + a ``` block with the prompt (pass it with `--md`;
+if no `--items` is given, `items.json` is preferred, then `prompts-comfyui.md`).
 
 ### Step 2 — generate
 
@@ -71,24 +82,37 @@ python3 generate_comfyui.py --ids 51,55,80
 # positions in the file (1-based)
 python3 generate_comfyui.py --only 1-10
 
-python3 generate_comfyui.py --comfyui-dir ~/ComfyUI-Installs/Comfy_Env/ComfyUI
+python3 generate_comfyui.py --md prompts-comfyui.md
 
-# models live in a shared folder, not inside the ComfyUI install:
+# ComfyUI instance name under ~/ComfyUI-Installs/ (default: ComfyUI):
+python3 generate_comfyui.py -i ComfyUI
+
+# check only: start the instance if needed, verify the workflow models, exit
+# (no generation) — useful to test the auto-start:
+python3 generate_comfyui.py --check
+
+# models live in a shared folder, not inside the ComfyUI install
+# (auto-detected: ~/ComfyUI-Shared/models, see below):
 python3 generate_comfyui.py --models-dir ~/ComfyUI-Shared/models
+python3 generate_comfyui.py --models-dir ''   # disable the auto-detected folder
 ```
 
 `--models-dir` (optional): a folder with ComfyUI model subfolders
-(`diffusion_models`, `text_encoders`/`clip`, `vae`, ...). When the script
-starts ComfyUI it passes it via `--extra-model-paths-config`, so a fresh
-install with empty model folders works with shared models. Without it, the
-models must already be inside the install's own `models/` folders.
+(`diffusion_models`, `text_encoders`, `vae`, ...). When the script
+starts ComfyUI it passes it via `--extra-model-paths-config` (nested yaml,
+same format ComfyUI Desktop uses), so a fresh install with empty model
+folders works with shared models. **Default: `~/ComfyUI-Shared/models`
+when it exists** (the same folder the ComfyUI Desktop instance points at);
+override with `--models-dir PATH`, disable with `--models-dir ''`.
 
 ### Troubleshooting
 
 - **"Value not in list: unet_name: ... not in []"** (ComfyUI rejects the
-  prompt, HTTP 400): the workflow's models are not in the model folders of
-  the ComfyUI installation. Either put/symlink them there, or use
-  `--models-dir` pointing at a shared models folder.
+  prompt): the workflow's models are not visible to the running ComfyUI
+  instance. Either put/symlink them in the install's model folders, point
+  `--models-dir` at a shared models folder, or run `--check` to test:
+  it starts the instance and reports OK/MISSING per model, without
+  generating anything.
 
 ### Batch per entity
 
