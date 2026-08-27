@@ -38,7 +38,7 @@ The flow in 3 steps:
    when the script starts the instance (the script's own args win in case of
    conflict, e.g. `--port`).
    folders:
-   - UNET: `z_image_turbo_bf16.safetensors`
+   - UNET: `unsloth/z_image_turbo-Q6_K.gguf`
    - CLIP: `qwen_3_4b.safetensors`
    - VAE: `ae.safetensors`
 2. Python 3.9+ (stdlib only, **zero dependencies to install**).
